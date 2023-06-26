@@ -1,10 +1,10 @@
-# Use the official PHP 8.2 image
+# Base image
 FROM php:8.2-fpm
 
 # Set the working directory
 WORKDIR /var/www/html
 
-# Install PHP extensions and dependencies
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     curl \
     libcurl4-openssl-dev \
@@ -15,24 +15,23 @@ RUN apt-get update && apt-get install -y \
     libxml2-dev \
     zip \
     unzip \
+    cron \
     nginx \
-    && docker-php-ext-install \
-        pdo_mysql \
-        mbstring \
-        curl \
-        json \
-        xml \
-        gd \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Certbot and dependencies
+# Install PHP extensions
+RUN docker-php-ext-install \
+    pdo_mysql \
+    gd
+
+# Install MariaDB
+RUN apt-get update && apt-get install -y \
+    mariadb-server \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Certbot
 RUN apt-get update && apt-get install -y \
     certbot \
-    cron \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Certbot Nginx plugin
-RUN apt-get update && apt-get install -y \
     python3-certbot-nginx \
     && rm -rf /var/lib/apt/lists/*
 
@@ -42,26 +41,20 @@ RUN openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
     -keyout /etc/ssl/private/nginx-selfsigned.key \
     -out /etc/ssl/certs/nginx-selfsigned.crt
 
-# Install Certbot cron job
-COPY certbot_cron /etc/cron.d/certbot_cron
-RUN chmod 0644 /etc/cron.d/certbot_cron
-RUN crontab /etc/cron.d/certbot_cron
-RUN touch /var/log/cron.log
+# Configure Nginx
+COPY nginx.conf /etc/nginx/sites-available/default
 
-# Install phpMyAdmin
+# Configure phpMyAdmin
 RUN curl -o phpmyadmin.tar.gz -SL https://www.phpmyadmin.net/downloads/phpMyAdmin-latest-all-languages.tar.gz \
     && tar -xzf phpmyadmin.tar.gz --strip-components=1 -C /var/www/html \
     && rm phpmyadmin.tar.gz
 
-# Configure PHP
-COPY php.ini /usr/local/etc/php/php.ini
-
-# Configure Nginx
-COPY nginx.conf /etc/nginx/sites-available/default
+# Create a cron job for Certbot SSL renewal
+RUN echo "0 12 * * * certbot renew --nginx >> /var/log/cron.log 2>&1" >> /etc/crontab
 
 # Expose ports
 EXPOSE 80
 EXPOSE 443
 
 # Start services
-CMD service php8.2-fpm start && cron && nginx -g "daemon off;"
+CMD service php8.2-fpm start && service mysql start && cron && nginx -g "daemon off;"
