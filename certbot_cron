@@ -1,0 +1,1 @@
+0 0 * * * certbot renew >> /var/log/cron.log 2>&1
